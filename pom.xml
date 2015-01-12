@@ -7,7 +7,7 @@
     </parent>
     <groupId>com.thinkaurelius.titan</groupId>
     <artifactId>titan</artifactId>
-    <version>0.5.4-SNAPSHOT</version>
+    <version>0.5.3</version>
     <packaging>pom</packaging>
     <prerequisites>
         <maven>2.2.1</maven>
@@ -71,7 +71,7 @@
         <httpcomponents.version>4.2.5</httpcomponents.version>
         <hadoop1.version>1.2.1</hadoop1.version>
         <hadoop2.version>2.2.0</hadoop2.version>
-        <hbase094.version>0.94.25</hbase094.version>
+        <hbase094.version>0.94.21</hbase094.version>
         <hbase096.core.version>0.96.2</hbase096.core.version>
         <hbase096.version>${hbase096.core.version}-hadoop2</hbase096.version>
         <hbase098.core.version>0.98.8</hbase098.core.version>
