@@ -79,7 +79,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.tinkerpop.blueprints.Direction.*;
 import static org.junit.Assert.*;
-import static org.junit.Assert.assertEquals;
 
 /**
  * @author Matthias Broecheler (me@matthiasb.com)
@@ -2940,7 +2939,7 @@ public abstract class TitanGraphTest extends TitanGraphBaseTest {
         u = (TitanVertex)tx.getVertex(u);
 
         evaluateQuery(v.query().keys(name.getName()).has(weight,Cmp.GREATER_THAN,3.6),
-                PROPERTY, 2*numV/10, 1, new boolean[]{true,true});
+                PROPERTY, 2*numV/10, 1, new boolean[]{false,true});
         evaluateQuery(v.query().keys(name.getName()).has(weight,Cmp.LESS_THAN,0.9).orderBy(weight,Order.ASC),
                 PROPERTY, 2*numV/10, 1, new boolean[]{true,true},weight,Order.ASC);
         evaluateQuery(v.query().keys(name.getName()).interval(weight, 1.1, 2.2).orderBy(weight,Order.DESC).limit(numV/10),
@@ -3029,7 +3028,7 @@ public abstract class TitanGraphTest extends TitanGraphBaseTest {
         u = (TitanVertex)tx.getVertex(u);
 
         evaluateQuery(v.query().keys(name.getName()).has(weight,Cmp.GREATER_THAN,3.6),
-                PROPERTY, 2*numV/10, 1, new boolean[]{true,true});
+                PROPERTY, 2*numV/10, 1, new boolean[]{false,true});
         evaluateQuery(v.query().keys(name.getName()).has(weight,Cmp.LESS_THAN,0.9).orderBy(weight,Order.ASC),
                 PROPERTY, 2*numV/10, 1, new boolean[]{true,true},weight,Order.ASC);
         evaluateQuery(v.query().keys(name.getName()).interval(weight, 1.1, 2.2).orderBy(weight,Order.DESC).limit(numV/10),
@@ -3129,7 +3128,7 @@ public abstract class TitanGraphTest extends TitanGraphBaseTest {
         //######### UPDATED QUERIES ##########
 
         evaluateQuery(v.query().keys(name.getName()).has(weight,Cmp.GREATER_THAN,3.6),
-                PROPERTY, 2*numV/10, 1, new boolean[]{true,true});
+                PROPERTY, 2*numV/10, 1, new boolean[]{false,true});
         evaluateQuery(v.query().keys(name.getName()).interval(time,numV/2-10,numV/2+10),
                 PROPERTY, 10, 1, new boolean[]{false,true});
         evaluateQuery(v.query().keys(name.getName()).interval(time,numV/2-10,numV/2+10).orderBy(weight,Order.DESC),
@@ -3170,7 +3169,7 @@ public abstract class TitanGraphTest extends TitanGraphBaseTest {
         //######### UPDATED QUERIES (copied from above) ##########
 
         evaluateQuery(v.query().keys(name.getName()).has(weight,Cmp.GREATER_THAN,3.6),
-                PROPERTY, 2*numV/10, 1, new boolean[]{true,true});
+                PROPERTY, 2*numV/10, 1, new boolean[]{false,true});
         evaluateQuery(v.query().keys(name.getName()).interval(time,numV/2-10,numV/2+10),
                 PROPERTY, 10, 1, new boolean[]{false,true});
         evaluateQuery(v.query().keys(name.getName()).interval(time,numV/2-10,numV/2+10).orderBy(weight,Order.DESC),
@@ -4403,6 +4402,59 @@ public abstract class TitanGraphTest extends TitanGraphBaseTest {
 
     //................................................
 
+
+    @Test
+    public void testHasNot() {
+        Vertex v1,v2;
+        v1 = graph.addVertex();
+
+        v2 = graph.query().hasNot("abcd").vertices().iterator().next();
+        assertEquals(v1,v2);
+        v2 = graph.query().hasNot("abcd",true).vertices().iterator().next();
+        assertEquals(v1,v2);
+    }
+
+
+    @Test
+    public void testVertexCentricIndexWithNull() {
+        EdgeLabel bought = makeLabel("bought");
+        PropertyKey time = makeKey("time",Long.class);
+        mgmt.buildEdgeIndex(bought,"byTimeDesc",BOTH,Order.DESC,time);
+        mgmt.buildEdgeIndex(bought,"byTimeIncr",BOTH,Order.ASC,time);
+        finishSchema();
+
+        Vertex v1 = tx.addVertex(), v2 = tx.addVertex();
+        v1.addEdge("bought",v2).setProperty("time",1);
+        v1.addEdge("bought",v2).setProperty("time",2);
+        v1.addEdge("bought",v2).setProperty("time",3);
+        v1.addEdge("bought",v2);
+        v1.addEdge("bought",v2);
+
+        assertEquals(5,v1.query().direction(OUT).labels("bought").count());
+        assertEquals(1,v1.query().direction(OUT).labels("bought").has("time",1).count());
+        assertEquals(1,v1.query().direction(OUT).labels("bought").has("time",Cmp.LESS_THAN,3).has("time",Cmp.GREATER_THAN,1).count());
+        assertEquals(3,v1.query().direction(OUT).labels("bought").has("time",Cmp.LESS_THAN,5).count());
+        assertEquals(3,v1.query().direction(OUT).labels("bought").has("time",Cmp.GREATER_THAN,0).count());
+        assertEquals(2,v1.query().direction(OUT).labels("bought").has("time",Cmp.LESS_THAN,3).count());
+        assertEquals(1,v1.query().direction(OUT).labels("bought").has("time",Cmp.GREATER_THAN,2).count());
+        assertEquals(2,v1.query().direction(OUT).labels("bought").hasNot("time").count());
+        assertEquals(5,v1.query().direction(OUT).labels("bought").count());
+
+
+        newTx();
+        v1 = tx.getVertex(v1);
+        //Queries copied from above
+
+        assertEquals(5,v1.query().direction(OUT).labels("bought").count());
+        assertEquals(1,v1.query().direction(OUT).labels("bought").has("time",1).count());
+        assertEquals(1,v1.query().direction(OUT).labels("bought").has("time",Cmp.LESS_THAN,3).has("time",Cmp.GREATER_THAN,1).count());
+        assertEquals(3,v1.query().direction(OUT).labels("bought").has("time",Cmp.LESS_THAN,5).count());
+        assertEquals(3,v1.query().direction(OUT).labels("bought").has("time",Cmp.GREATER_THAN,0).count());
+        assertEquals(2,v1.query().direction(OUT).labels("bought").has("time",Cmp.LESS_THAN,3).count());
+        assertEquals(1,v1.query().direction(OUT).labels("bought").has("time",Cmp.GREATER_THAN,2).count());
+        assertEquals(2,v1.query().direction(OUT).labels("bought").hasNot("time").count());
+        assertEquals(5,v1.query().direction(OUT).labels("bought").count());
+    }
 
 
     //Add more removal operations, different transaction contexts

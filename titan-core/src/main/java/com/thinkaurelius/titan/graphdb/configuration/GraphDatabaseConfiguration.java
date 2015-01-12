@@ -88,8 +88,8 @@ public class GraphDatabaseConfiguration {
 
     public static final ConfigOption<Boolean> ALLOW_SETTING_VERTEX_ID = new ConfigOption<Boolean>(GRAPH_NS,"set-vertex-id",
             "Whether user provided vertex ids should be enabled and Titan's automatic id allocation be disabled. " +
-                "Useful when operating Titan in concert with another storage system that assigns long ids but disables some" +
-                    "of Titan's advanced features which can lead to inconsistent data. EXPERT FEATURE - USE WITH GREAT CARE.",
+            "Useful when operating Titan in concert with another storage system that assigns long ids but disables some " +
+            "of Titan's advanced features which can lead to inconsistent data. EXPERT FEATURE - USE WITH GREAT CARE.",
             ConfigOption.Type.FIXED, false);
 
     public static final ConfigOption<Timestamps> TIMESTAMP_PROVIDER = new ConfigOption<Timestamps>(GRAPH_NS, "timestamps",
@@ -810,7 +810,7 @@ public class GraphDatabaseConfiguration {
     public static final ConfigOption<String[]> INDEX_HOSTS = new ConfigOption<String[]>(INDEX_NS,"hostname",
             "The hostname or comma-separated list of hostnames of index backend servers.  " +
             "This is only applicable to some index backends, such as elasticsearch and solr.",
-            ConfigOption.Type.GLOBAL, new String[]{NetworkUtil.getLoopbackAddress()});
+            ConfigOption.Type.MASKABLE, new String[]{NetworkUtil.getLoopbackAddress()});
 
     public static final ConfigOption<Integer> INDEX_PORT = new ConfigOption<Integer>(INDEX_NS,"port",
             "The port on which to connect to index backend servers",
