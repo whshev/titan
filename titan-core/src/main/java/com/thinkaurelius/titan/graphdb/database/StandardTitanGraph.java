@@ -72,6 +72,12 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration.REGISTRATION_TIME;
 
+//Added by whshev.
+import com.thinkaurelius.titan.partition.HotSpotScanner;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import static com.thinkaurelius.titan.graphdb.configuration.GraphDatabaseConfiguration.STORAGE_BACKEND;
+
 public class StandardTitanGraph extends TitanBlueprintsGraph {
 
     private static final Logger log =
@@ -105,6 +111,17 @@ public class StandardTitanGraph extends TitanBlueprintsGraph {
 
     private Set<StandardTitanTx> openTransactions;
 
+    //Added by whshev.
+    private HotSpotScanner hotSpotScanner = null;
+    //Added by whshev.
+    public boolean hasHotSpot() {
+        return this.hotSpotScanner != null;
+    }
+    //Added by whshev.
+    public HotSpotScanner getHotSpotScanner() {
+        return hotSpotScanner;
+    }
+
     public StandardTitanGraph(GraphDatabaseConfiguration configuration) {
         this.config = configuration;
         this.backend = configuration.getBackend();
@@ -121,6 +138,29 @@ public class StandardTitanGraph extends TitanBlueprintsGraph {
         this.queryCache = new RelationQueryCache(this.edgeSerializer);
         this.schemaCache = configuration.getTypeCache(typeCacheRetrieval);
         this.times = configuration.getTimestampProvider();
+
+        //Modified by whshev.
+        if (configuration.getConfiguration().get(GraphDatabaseConfiguration.STORAGE_BACKEND).equalsIgnoreCase("hbase")) {
+            String[] hosts = configuration.getConfiguration().get(GraphDatabaseConfiguration.STORAGE_HOSTS);
+            String tableName = this.backend.getTableName();
+            String scannerClass = "com.thinkaurelius.titan.partition.HBaseHotSpotScanner";
+            try {
+                Class clazz = Class.forName(scannerClass);
+                Constructor constructor = clazz.getConstructor(String[].class, String.class, IDManager.class);
+                this.hotSpotScanner = (HotSpotScanner) constructor.newInstance(hosts, tableName, this.idManager);
+                this.idAssigner.setHotSpotScanner(this.hotSpotScanner);
+            } catch (ClassNotFoundException e) {
+                e.printStackTrace();
+            } catch (NoSuchMethodException e) {
+                e.printStackTrace();
+            } catch (InvocationTargetException e) {
+                e.printStackTrace();
+            } catch (InstantiationException e) {
+                e.printStackTrace();
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+        }
 
         isOpen = true;
         txCounter = new AtomicLong(0);
@@ -173,6 +213,10 @@ public class StandardTitanGraph extends TitanBlueprintsGraph {
             idAssigner.close();
             backend.close();
             queryCache.close();
+            //Modified by whshev.
+            if (hasHotSpot()) {
+                hotSpotScanner.close();
+            }
         } catch (BackendException e) {
             throw new TitanException("Could not close storage backend", e);
         } finally {

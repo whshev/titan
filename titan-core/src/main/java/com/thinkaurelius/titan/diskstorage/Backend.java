@@ -441,6 +441,11 @@ public class Backend implements LockerProvider {
         return storeFeatures;
     }
 
+    //Added by whshev.
+    public String getTableName() {
+        return this.storeManager.getName();
+    }
+
     /**
      * Returns the {@link IndexFeatures} of all configured index backends
      */

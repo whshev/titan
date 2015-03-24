@@ -49,7 +49,9 @@ public abstract class AbstractVertex extends AbstractElement implements Internal
 
     @Override
     public long getCompareId() {
-        if (tx.isPartitionedVertex(this)) return tx.getIdInspector().getCanonicalVertexId(getLongId());
+        //Modified by whshev.
+//        if (tx.isPartitionedVertex(this)) return tx.getIdInspector().getCanonicalVertexId(getLongId());
+        if (tx.isPartitionedVertex(this)) return tx.getCanonicalId(getLongId());
         else return getLongId();
     }
 

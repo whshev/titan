@@ -476,8 +476,12 @@ public class IndexSerializer {
         } else {
             values = new ArrayList<RecordEntry>();
             Iterable<TitanProperty> props;
+            //Modified by whshev.
+//            if (onlyLoaded ||
+//                    (!vertex.isNew() && IDManager.VertexIDType.PartitionedVertex.is(vertex.getLongId()))) {
             if (onlyLoaded ||
-                    (!vertex.isNew() && IDManager.VertexIDType.PartitionedVertex.is(vertex.getLongId()))) {
+                    (!vertex.isNew() &&
+                            (IDManager.VertexIDType.PartitionedVertex.is(vertex.getLongId()) || ((InternalVertex)vertex).tx().isHotSpot(vertex.getLongId())))) {
                 //going through transaction so we can query deleted vertices
                 VertexCentricQueryBuilder qb = ((InternalVertex)vertex).tx().query(vertex);
                 qb.noPartitionRestriction().type(key);

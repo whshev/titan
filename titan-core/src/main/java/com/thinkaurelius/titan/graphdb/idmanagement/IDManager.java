@@ -534,6 +534,30 @@ public class IDManager {
         return getCanonicalVertexIdFromCount(count);
     }
 
+    //Added by whshev.
+    public long getHotSpotId(long hotSpotId, long otherPartition) {
+        Preconditions.checkArgument(VertexIDType.NormalVertex.is(hotSpotId));
+        long count = hotSpotId>>>(partitionBits+USERVERTEX_PADDING_BITWIDTH);
+        assert count>0;
+        return constructId(count,otherPartition,VertexIDType.NormalVertex);
+    }
+
+    //Added by whshev.
+    public long[] getHotSpotRepresentatives(long hotSpotId) {
+        Preconditions.checkArgument(VertexIDType.NormalVertex.is(hotSpotId));
+        assert getPartitionBound()<Integer.MAX_VALUE;
+        long[] ids = new long[(int)getPartitionBound()];
+        for (int i=0;i<getPartitionBound();i++) {
+            ids[i] = getHotSpotId(hotSpotId,i);
+        }
+        return ids;
+    }
+
+    //Added by whshev.
+    public long getCount(long vertexId) {
+        return vertexId>>>(partitionBits+USERVERTEX_PADDING_BITWIDTH);
+    }
+
     public boolean isCanonicalVertexId(long partitionVertexId) {
         return partitionVertexId==getCanonicalVertexId(partitionVertexId);
     }

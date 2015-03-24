@@ -76,6 +76,9 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
+//Added by whshev.
+import com.thinkaurelius.titan.partition.HotSpotScanner;
+
 /**
  * @author Matthias Broecheler (me@matthiasb.com)
  */
@@ -104,6 +107,9 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
     private BackendTransaction txHandle;
     private final EdgeSerializer edgeSerializer;
     private final IndexSerializer indexSerializer;
+
+    //Added by whshev.
+    private HotSpotScanner hotSpotScanner = null;
 
     /* ###############################################
             Internal Data Structures
@@ -186,6 +192,9 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
         this.attributeHandler = graph.getDataSerializer();
         this.edgeSerializer = graph.getEdgeSerializer();
         this.indexSerializer = graph.getIndexSerializer();
+
+        //Modified by whshev.
+        this.hotSpotScanner = graph.getHotSpotScanner();
 
         temporaryIds = new IDPool() {
 
@@ -316,12 +325,16 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
     }
 
     public boolean isPartitionedVertex(TitanVertex vertex) {
-        return vertex.hasId() && idInspector.isPartitionedVertex(vertex.getLongId());
+        //Modified by whshev.
+//        return vertex.hasId() && idInspector.isPartitionedVertex(vertex.getLongId());
+        return vertex.hasId() && isPartitionedOrHotSpot(vertex.getLongId());
     }
 
     public InternalVertex getCanonicalVertex(InternalVertex partitionedVertex) {
         Preconditions.checkArgument(isPartitionedVertex(partitionedVertex));
-        long canonicalId = idManager.getCanonicalVertexId(partitionedVertex.getLongId());
+        //Modified by whshev.
+//        long canonicalId = idManager.getCanonicalVertexId(partitionedVertex.getLongId());
+        long canonicalId = getCanonicalId(partitionedVertex.getLongId());
         if (canonicalId==partitionedVertex.getLongId()) return partitionedVertex;
         else return getExistingVertex(canonicalId);
     }
@@ -331,16 +344,77 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
         return getExistingVertex(idManager.getPartitionedVertexId(partitionedVertex.getLongId(), otherPartition));
     }
 
+    //Added by whshev.
+    public boolean isPartitionedOrHotSpot(long vertexId) {
+        return idInspector.isPartitionedVertex(vertexId) || isHotSpot(vertexId);
+    }
+
+    //Added by whshev.
+    public boolean isHotSpot(TitanVertex vertex) {
+        if (hotSpotScanner != null) {
+            return vertex.hasId() && hotSpotScanner.isHotSpot(vertex.getLongId());
+        }
+        return false;
+    }
+
+    //Added by whshev.
+    public boolean isHotSpot(long vertexId) {
+        if (hotSpotScanner != null) {
+            return hotSpotScanner.isHotSpot(vertexId);
+        }
+        return false;
+    }
+
+    //Added by whshev.
+    public long getCanonicalHotSpotId(long hotSpotId) {
+        if (hotSpotScanner != null) {
+            return hotSpotScanner.getCanonicalHotSpotId(hotSpotId);
+        }
+        return hotSpotId;
+    }
+
+    //Added by whshev.
+    public long getCanonicalId(long vertexId) {
+        if (idInspector.isPartitionedVertex(vertexId)) {
+            return idManager.getCanonicalVertexId(vertexId);
+        } else if (isHotSpot(vertexId)) {
+            return hotSpotScanner.getCanonicalHotSpotId(vertexId);
+        }
+        return vertexId;
+    }
+
+    //Added by whshev.
+    public InternalVertex getOtherHotSpot(TitanVertex hotSpot, long otherPartition) {
+        Preconditions.checkArgument(isHotSpot(hotSpot));
+        return getExistingVertex(idManager.getHotSpotId(hotSpot.getLongId(), otherPartition));
+    }
+
     public InternalVertex[] getAllRepresentatives(TitanVertex partitionedVertex, boolean restrict2Partitions) {
         Preconditions.checkArgument(isPartitionedVertex(partitionedVertex));
         long[] ids;
         if (!restrict2Partitions || !config.hasRestrictedPartitions()) {
-            ids = idManager.getPartitionedVertexRepresentatives(partitionedVertex.getLongId());
+            //Modified by whshev.
+//            ids = idManager.getPartitionedVertexRepresentatives(partitionedVertex.getLongId());
+            if (idInspector.isPartitionedVertex(partitionedVertex.getLongId())) {
+                ids = idManager.getPartitionedVertexRepresentatives(partitionedVertex.getLongId());
+            } else {
+                ids = idManager.getHotSpotRepresentatives(partitionedVertex.getLongId());
+            }
         } else {
             int[] restrictedParititions = config.getRestrictedPartitions();
             ids = new long[restrictedParititions.length];
-            for (int i=0;i<ids.length;i++) {
-                ids[i]=idManager.getPartitionedVertexId(partitionedVertex.getLongId(),restrictedParititions[i]);
+            //Modified by whshev.
+//            for (int i=0;i<ids.length;i++) {
+//                ids[i]=idManager.getPartitionedVertexId(partitionedVertex.getLongId(),restrictedParititions[i]);
+//            }
+            if (idInspector.isPartitionedVertex(partitionedVertex.getLongId())) {
+                for (int i=0;i<ids.length;i++) {
+                    ids[i]=idManager.getPartitionedVertexId(partitionedVertex.getLongId(),restrictedParititions[i]);
+                }
+            } else {
+                for (int i=0;i<ids.length;i++) {
+                    ids[i]=idManager.getHotSpotId(partitionedVertex.getLongId(), restrictedParititions[i]);
+                }
             }
         }
         Preconditions.checkArgument(ids.length>0);
@@ -355,7 +429,7 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
      */
 
     @Override
-    public boolean containsVertex(final long vertexid) {
+        public boolean containsVertex(final long vertexid) {
         return getVertex(vertexid) != null;
     }
 
@@ -371,7 +445,9 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
         }
         if (!isValidVertexId(vertexid)) return null;
         //Make canonical partitioned vertex id
-        if (idInspector.isPartitionedVertex(vertexid)) vertexid=idManager.getCanonicalVertexId(vertexid);
+        //Modified by whshev.
+//        if (idInspector.isPartitionedVertex(vertexid)) vertexid=idManager.getCanonicalVertexId(vertexid);
+        vertexid = getCanonicalId(vertexid);
 
         InternalVertex v = null;
         v = vertexCache.get(vertexid, externalVertexRetriever);
@@ -389,7 +465,9 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
         LongArrayList vids = new LongArrayList(ids.length);
         for (long id : ids) {
             if (isValidVertexId(id)) {
-                if (idInspector.isPartitionedVertex(id)) id=idManager.getCanonicalVertexId(id);
+                //Modified by whshev.
+//                if (idInspector.isPartitionedVertex(id)) id=idManager.getCanonicalVertexId(id);
+                id = getCanonicalId(id);
                 if (vertexCache.contains(id))
                     result.put(id,vertexCache.get(id, existingVertexRetriever));
                 else
@@ -436,7 +514,9 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
             Preconditions.checkArgument(idInspector.isSchemaVertexId(vertexid) || idInspector.isUserVertexId(vertexid), "Not a valid vertex id: %s", vertexid);
 
             byte lifecycle = ElementLifeCycle.Loaded;
-            long canonicalVertexId = idInspector.isPartitionedVertex(vertexid)?idManager.getCanonicalVertexId(vertexid):vertexid;
+            //Modified by whshev.
+//            long canonicalVertexId = idInspector.isPartitionedVertex(vertexid)?idManager.getCanonicalVertexId(vertexid):vertexid;
+            long canonicalVertexId = getCanonicalId(vertexid);
             if (verifyExistence) {
                 if (graph.edgeQuery(canonicalVertexId, graph.vertexExistenceQuery, txHandle).isEmpty())
                     lifecycle = ElementLifeCycle.Removed;
@@ -533,7 +613,9 @@ public class StandardTitanTx extends TitanBlueprintsTransaction implements TypeI
         return Iterables.filter(allVertices,new Predicate<InternalVertex>() {
             @Override
             public boolean apply(@Nullable InternalVertex internalVertex) {
-                return !isPartitionedVertex(internalVertex) || internalVertex.getLongId()==idInspector.getCanonicalVertexId(internalVertex.getLongId());
+                //Modified by whshev.
+//                return !isPartitionedVertex(internalVertex) || internalVertex.getLongId()==idInspector.getCanonicalVertexId(internalVertex.getLongId());
+                return !isPartitionedVertex(internalVertex) || internalVertex.getLongId() == getCanonicalId(internalVertex.getLongId());
             }
         });
     }

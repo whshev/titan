@@ -10,6 +10,7 @@ import com.thinkaurelius.titan.graphdb.configuration.PreInitializeConfigOptions;
 import com.thinkaurelius.titan.graphdb.internal.InternalRelationType;
 import com.thinkaurelius.titan.graphdb.relations.EdgeDirection;
 import com.thinkaurelius.titan.graphdb.relations.ReassignableRelation;
+import com.thinkaurelius.titan.partition.HotSpotScanner;
 import com.thinkaurelius.titan.util.stats.NumberUtil;
 import com.thinkaurelius.titan.core.attribute.Duration;
 import com.thinkaurelius.titan.diskstorage.Backend;
@@ -64,12 +65,40 @@ public class VertexIDAssigner {
     private final int partitionIdBound;
     private final boolean hasLocalPartitions;
 
+    //Added by whshev.
+    private HotSpotScanner hotSpotScanner = null;
+    private boolean partitionIDs;
+
+    //Added by whshev.
+    public void setHotSpotScanner(HotSpotScanner hotSpotScanner) {
+        this.hotSpotScanner = hotSpotScanner;
+    }
+
+    //Added by whshev.
+    public boolean isHotSpot(long vid) {
+        if (this.partitionIDs && this.hotSpotScanner != null) {
+            return this.hotSpotScanner.isHotSpot(vid);
+        }
+        return false;
+    }
+
+    //Added by whshev.
+    public boolean isHotSpotOrPartitionedVertex(long vid) {
+        if (this.partitionIDs && this.hotSpotScanner != null) {
+            return this.hotSpotScanner.isHotSpot(vid) || this.idManager.isPartitionedVertex(vid);
+        } else {
+            return this.idManager.isPartitionedVertex(vid);
+        }
+    }
+
     public VertexIDAssigner(Configuration config, IDAuthority idAuthority, StoreFeatures idAuthFeatures) {
         Preconditions.checkNotNull(idAuthority);
         this.idAuthority = idAuthority;
 
         int partitionBits;
         boolean partitionIDs = config.get(CLUSTER_PARTITION);
+        //Added by whshev.
+        this.partitionIDs = partitionIDs;
         if (partitionIDs) {
             //Use a placement strategy that balances partitions
             partitionBits = NumberUtil.getPowerOf2(config.get(CLUSTER_MAX_PARTITIONS));
@@ -196,10 +225,15 @@ public class VertexIDAssigner {
                     //If one end vertex is partitioned and the other isn't, use the partition of the non-partitioned vertex
                     for (int pos = 0; pos < relation.getArity(); pos++) {
                         int otherpos = (pos+1)%2;
-                        if (idManager.isPartitionedVertex(relation.getVertex(pos).getLongId()) &&
-                                !idManager.isPartitionedVertex(relation.getVertex(otherpos).getLongId())) {
+                        //Modified by whshev.
+                        if (isHotSpotOrPartitionedVertex(relation.getVertex(pos).getLongId()) &&
+                                !isHotSpotOrPartitionedVertex(relation.getVertex(otherpos).getLongId())) {
                             move2Partition = getPartitionID(relation.getVertex(otherpos));
                         }
+//                        if (idManager.isPartitionedVertex(relation.getVertex(pos).getLongId()) &&
+//                                !idManager.isPartitionedVertex(relation.getVertex(otherpos).getLongId())) {
+//                            move2Partition = getPartitionID(relation.getVertex(otherpos));
+//                        }
                     }
                 }
                 for (int pos = 0; pos < relation.getArity(); pos++) {
@@ -213,13 +247,31 @@ public class VertexIDAssigner {
                             //...else, we assign it to the partition of the non-partitioned vertex...
                             newPartition = move2Partition;
                         } else {
+                            //Modified by whshev.
                             //...and if such does not exists (i.e. property or both end vertices are partitioned) we use the hash of the relation id
-                            assert (relation.isProperty() && ((TitanProperty)relation).getPropertyKey().getCardinality()!=Cardinality.SINGLE) ||
-                                    (relation.isEdge() && idManager.isPartitionedVertex(relation.getVertex(0).getLongId()) && idManager.isPartitionedVertex(relation.getVertex(1).getLongId()));
+//                            assert (relation.isProperty() && ((TitanProperty)relation).getPropertyKey().getCardinality()!=Cardinality.SINGLE) ||
+//                                    (relation.isEdge() && idManager.isPartitionedVertex(relation.getVertex(0).getLongId()) && idManager.isPartitionedVertex(relation.getVertex(1).getLongId()));
                             newPartition = idManager.getPartitionHashForId(relation.getLongId());
                         }
                         if (idManager.getPartitionId(incident.getLongId())!=newPartition) {
                             ((ReassignableRelation)relation).setVertexAt(pos,incident.tx().getOtherPartitionVertex(incident, newPartition));
+                        }
+                    // Modified by whshev.
+                    } else if (isHotSpot(incident.getLongId())) {
+                        if (((InternalRelationType)relation.getType()).getMultiplicity().isUnique(EdgeDirection.fromPosition(pos))) {
+                            //If the relation is unique in the direction, we assign it to the canonical vertex...
+                            newPartition = idManager.getPartitionId(hotSpotScanner.getCanonicalHotSpotId(incident.getLongId()));
+                        } else if (move2Partition>=0) {
+                            //...else, we assign it to the partition of the non-partitioned vertex...
+                            newPartition = move2Partition;
+                        } else {
+                            //...and if such does not exists (i.e. property or both end vertices are partitioned) we use the hash of the relation id
+//                            assert (relation.isProperty() && ((TitanProperty)relation).getPropertyKey().getCardinality()!=Cardinality.SINGLE) ||
+//                                    (relation.isEdge() && idManager.isPartitionedVertex(relation.getVertex(0).getLongId()) && idManager.isPartitionedVertex(relation.getVertex(1).getLongId()));
+                            newPartition = idManager.getPartitionHashForId(relation.getLongId());
+                        }
+                        if (idManager.getPartitionId(incident.getLongId())!=newPartition) {
+                            ((ReassignableRelation)relation).setVertexAt(pos,incident.tx().getOtherHotSpot(incident, newPartition));
                         }
                     }
                 }
@@ -326,6 +378,12 @@ public class VertexIDAssigner {
                 Preconditions.checkArgument(userVertexIDType!=null);
                 idPool = partitionPool.getPool(PoolType.getPoolTypeFor(userVertexIDType));
             }
+
+            //Modified by whshev.
+            if (this.partitionIDs && this.hotSpotScanner != null && userVertexIDType == IDManager.VertexIDType.NormalVertex) {
+                idPool = partitionVertexIdPool;
+            }
+
             try {
                 count = idPool.nextID();
                 partitionPool.accessed();
@@ -387,7 +445,9 @@ public class VertexIDAssigner {
                 case UNMODIFIABLE_VERTEX:
                     return Math.max(10,baseBlockSize/10);
                 case PARTITIONED_VERTEX:
-                    return Math.max(10,baseBlockSize/100);
+                    //Modified by whshev.
+                    return baseBlockSize;
+//                    return Math.max(10,baseBlockSize/100);
                 case RELATION:
                     return baseBlockSize * 8;
                 case SCHEMA:
